@@ -1,4 +1,5 @@
-version: '3.5'
+version: '3.8'
+
 services:
   parsedmarc:
     build: ./parsedmarc/
@@ -7,21 +8,42 @@ services:
       - ./output_files:/output
     command: parsedmarc -c /parsedmarc.ini /input/* --debug
     depends_on:
-      - elasticsearch
-    restart: on-failure
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - dmarc-network
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.5
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.5
     environment:
       - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1g"
+      - bootstrap.memory_lock=true
     volumes:
-      - ./elastic_data:/usr/share/elasticsearch/data
+      - ./elastic_data:/usr/share/elasticsearch/data:Z
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    user: "1000:1000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dmarc-network
 
-  grafana:
-    build: ./grafana/
-    ports:
-      - 3000:3000
-    user: root
-    environment:
-      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel
-      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+
+
+networks:
+  dmarc-network:
+    driver: bridge
